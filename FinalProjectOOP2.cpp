@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <map>
 #include <sstream>
-
 using namespace std;
 
 class Item 
@@ -13,27 +12,22 @@ protected:
     string name;
     string category;
     double price;
-    int quantity;
 
 public:
-    Item(const string& name, const string& category, double price, int quantity)
-        : name(name), category(category), price(price), quantity(quantity) {}
+    Item(const string& name, const string& category, double price)
+        : name(name), category(category), price(price) {}
 
     virtual ~Item() {}
 
     string getName() const { return name; }
     string getCategory() const { return category; }
     double getPrice() const { return price; }
-    int getQuantity() const { return quantity; }
-
-    void setQuantity(int quantity) { this->quantity = quantity; }
 
     virtual void print() const 
     {
         cout << "Name: " << name << endl;
         cout << "Category: " << category << endl;
         cout << "Price: " << price << endl;
-        cout << "Quantity: " << quantity << endl;
     }
 };
 
@@ -43,8 +37,8 @@ private:
     string expirationDate;
 
 public:
-    Product(const string& name, const string& expirationDate, const string& category, double price, int quantity)
-        : Item(name, category, price, quantity), expirationDate(expirationDate) {}
+    Product(const string& name, const string& expirationDate, const string& category, double price)
+        : Item(name, category, price), expirationDate(expirationDate) {}
 
     string getExpirationDate() const { return expirationDate; }
 
@@ -57,13 +51,19 @@ public:
 
 class NonFoodItem : public Item 
 {
+private:
+    string expirationDate;
+
 public:
-    NonFoodItem(const string& name, const string& category, double price, int quantity)
-        : Item(name, category, price, quantity) {}
+    NonFoodItem(const string& name, const string& category, double price, const string& expirationDate)
+        : Item(name, category, price), expirationDate(expirationDate) {}
+
+    string getExpirationDate() const { return expirationDate; }
 
     void print() const override 
     {
         Item::print();
+        cout << "Expiration Date: " << expirationDate << endl;
     }
 };
 
@@ -71,6 +71,18 @@ class Supermarket
 {
 private:
     vector<Item*> items;
+
+    bool itemExists(const string& name) const 
+    {
+        for (const auto& item : items) 
+        {
+            if (item->getName() == name) 
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
 public:
     ~Supermarket() 
@@ -83,16 +95,34 @@ public:
 
     void addItem(Item* item) 
     {
-        for (auto& i : items) 
+        if (itemExists(item->getName())) 
         {
-            if (i->getName() == item->getName() && i->getCategory() == item->getCategory()) 
+            cout << "Error: Item '" << item->getName() << "' already exists." << endl;
+            delete item;
+        }
+        else 
+        {
+            items.push_back(item);
+        }
+    }
+
+    void addItem(const string& name, const string& category, double price, const string& expirationDate) 
+    {
+        if (itemExists(name)) 
+        {
+            cout << "Error: Item '" << name << "' already exists." << endl;
+        }
+        else 
+        {
+            if (category == "dairy" || category == "bakery") 
             {
-                i->setQuantity(i->getQuantity() + item->getQuantity());
-                delete item;
-                return;
+                addItem(new Product(name, expirationDate, category, price));
+            }
+            else 
+            {
+                addItem(new NonFoodItem(name, category, price, expirationDate));
             }
         }
-        items.push_back(item);
     }
 
     void saveToFile(const string& filename) const 
@@ -101,10 +131,14 @@ public:
         for (const auto& item : items) 
         {
             file << item->getName() << "," << item->getCategory() << ","
-                << item->getPrice() << "," << item->getQuantity();
+                << item->getPrice();
             if (auto product = dynamic_cast<Product*>(item)) 
             {
                 file << "," << product->getExpirationDate();
+            }
+            else if (auto nonFood = dynamic_cast<NonFoodItem*>(item)) 
+            {
+                file << "," << nonFood->getExpirationDate();
             }
             file << endl;
         }
@@ -116,7 +150,6 @@ public:
         ifstream file(filename);
         string name, category, expirationDate, line;
         double price;
-        int quantity;
         while (getline(file, line)) 
         {
             stringstream ss(line);
@@ -124,17 +157,8 @@ public:
             getline(ss, category, ',');
             ss >> price;
             ss.ignore(1, ',');
-            ss >> quantity;
-            ss.ignore(1, ',');
-            if (category == "dairy" || category == "bakery") 
-            {
-                getline(ss, expirationDate);
-                addItem(new Product(name, expirationDate, category, price, quantity));
-            }
-            else 
-            {
-                addItem(new NonFoodItem(name, category, price, quantity));
-            }
+            getline(ss, expirationDate);
+            addItem(name, category, price, expirationDate);
         }
         file.close();
     }
@@ -154,6 +178,7 @@ public:
             {
                 item->print();
             }
+            cout << endl;
         }
     }
 
@@ -163,9 +188,13 @@ public:
         for (const auto& item : items) 
         {
             cout << "Name: " << item->getName() << ", Category: " << item->getCategory() << ", Price: " << item->getPrice();
-            if (auto product = dynamic_cast<Product*>(item)) 
+            if (auto product = dynamic_cast<const Product*>(item)) 
             {
                 cout << ", Expiration Date: " << product->getExpirationDate();
+            }
+            else if (auto nonFood = dynamic_cast<const NonFoodItem*>(item)) 
+            {
+                cout << ", Expiration Date: " << nonFood->getExpirationDate();
             }
             cout << endl;
         }
@@ -195,7 +224,10 @@ public:
 
         if (it != items.end()) 
         {
-            delete* it;
+            for (auto i = it; i != items.end(); ++i) 
+            {
+                delete* i;
+            }
             items.erase(it, items.end());
             cout << "Item deleted successfully." << endl;
         }
@@ -208,30 +240,20 @@ public:
     void sellItems(const vector<pair<string, int>>& itemsToSell) 
     {
         double totalCost = 0.0;
-        for (const auto& item : itemsToSell) 
+        for (const auto& itemToSell : itemsToSell) 
         {
-            const string& name = item.first;
-            const int& quantity = item.second;
+            const string& name = itemToSell.first;
+            const int& quantity = itemToSell.second;
 
             bool itemFound = false;
-            for (auto& item : items) 
+            for (const auto& item : items) 
             {
                 if (item->getName() == name) 
                 {
-                    if (item->getQuantity() >= quantity) 
-                    {
-                        item->setQuantity(item->getQuantity() - quantity);
-                        totalCost += item->getPrice() * quantity;
-                        cout << "Item '" << name << "' sold successfully." << endl;
-                        itemFound = true;
-                        break;
-                    }
-                    else 
-                    {
-                        cout << "Not enough quantity of item '" << name << "' available." << endl;
-                        itemFound = true;
-                        break;
-                    }
+                    itemFound = true;
+                    totalCost += item->getPrice() * quantity;
+                    cout << "Item '" << name << "' sold successfully." << endl;
+                    break;
                 }
             }
             if (!itemFound) 
@@ -261,18 +283,20 @@ int main()
 {
     Supermarket supermarket;
 
-    supermarket.addItem(new Product("Milk", "2024-06-10", "Dairy", 1.5, 10));
-    supermarket.addItem(new Product("Bread", "2024-06-08", "Bakery", 1.2, 20));
-    supermarket.addItem(new Product("Apples", "2024-06-15", "Fruits", 2.0, 15));
-    supermarket.addItem(new Product("Pasta", "2024-12-31", "Pasta", 1.0, 30));
-    supermarket.addItem(new Product("Soap", "2025-06-01", "Household", 0.8, 25));
+    supermarket.addItem(new Product("Milk", "2024-06-10", "dairy products", 1.5));
+    supermarket.addItem(new Product("Bread", "2024-06-08", "bakery", 1.2));
+    supermarket.addItem(new NonFoodItem("Soap", "household goods", 0.8, "2025-06-01"));
+    supermarket.addItem(new Product("Eggs", "2024-06-12", "dairy products", 2.0));
+    supermarket.addItem(new Product("Cheese", "2024-06-15", "dairy products", 3.0));
+    supermarket.addItem(new NonFoodItem("Shampoo", "household goods", 1.5, "2025-07-01"));
+    supermarket.addItem(new Product("Coffee", "2024-06-20", "beverages", 2.5));
 
     int choice;
     while (true) 
     {
         printMenu();
         cin >> choice;
-        cin.ignore();
+        cin.ignore();  
 
         if (choice == 9) break;
 
@@ -283,23 +307,15 @@ int main()
             string name, category, expirationDate;
             double price;
             cout << "Enter item name: ";
-            cin.ignore();
             getline(cin, name);
             cout << "Enter category: ";
             getline(cin, category);
             cout << "Enter price: ";
             cin >> price;
-            cout << "Enter expiration date: ";
             cin.ignore();
+            cout << "Enter expiration date: ";
             getline(cin, expirationDate);
-            if (category == "dairy" || category == "bakery") 
-            {
-                supermarket.addItem(new Product(name, expirationDate, category, price, 0));
-            }
-            else 
-            {
-                supermarket.addItem(new NonFoodItem(name, category, price, 0));
-            }
+            supermarket.addItem(name, category, price, expirationDate);
             break;
         }
         case 2:
@@ -318,7 +334,6 @@ int main()
         {
             string name;
             cout << "Enter item name to search: ";
-            cin.ignore();
             getline(cin, name);
             supermarket.searchItem(name);
             break;
@@ -327,7 +342,6 @@ int main()
         {
             string name;
             cout << "Enter item name to delete: ";
-            cin.ignore();
             getline(cin, name);
             supermarket.deleteItem(name);
             break;
@@ -337,16 +351,18 @@ int main()
             vector<pair<string, int>> itemsToSell;
             string name;
             int quantity;
-            cout << "Enter items to sell (format: name quantity, e.g. 'Milk 2'): ";
-            while (true) 
-            {
-                cin >> name >> quantity;
+            char response;
+            do {
+                cout << "Enter item name: ";
+                getline(cin, name);
+                cout << "Enter quantity: ";
+                cin >> quantity;
+                cin.ignore(); 
                 itemsToSell.push_back({ name, quantity });
                 cout << "Add another item? (y/n): ";
-                char response;
                 cin >> response;
-                if (response == 'n') break;
-            }
+                cin.ignore();  
+            } while (response == 'y');
             supermarket.sellItems(itemsToSell);
             break;
         }
